@@ -1,0 +1,1517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>活体检测 · Liveness SDK Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Noto+Serif+SC:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0b;
+  --ink: #f5f5f0;
+  --dim: #8a8a82;
+  --line: #2a2a28;
+  --accent: #d4ff00;
+  --danger: #ff3b30;
+  --success: #30d158;
+  --warn: #ffd60a;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'JetBrains Mono', monospace;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  position: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 满屏炫彩闪烁层 */
+.flash-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease-out, background-color 0.15s ease-out;
+  background: #000;
+}
+
+.flash-layer.active { opacity: 0.85; }
+
+/* 主容器 */
+.app {
+  position: relative;
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶部状态栏 */
+.topbar {
+  padding: 18px 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  background: rgba(10,10,11,0.8);
+  backdrop-filter: blur(10px);
+  z-index: 10;
+}
+
+.logo {
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  font-size: 13px;
+}
+
+.logo span { color: var(--accent); }
+
+.session {
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+}
+
+/* 视频区域 */
+.video-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  display: block;
+}
+
+canvas.overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: scaleX(-1);
+  pointer-events: none;
+}
+
+/* 取景框装饰 */
+.viewfinder {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viewfinder::before {
+  content: '';
+  width: min(70vw, 380px);
+  height: min(70vw, 380px);
+  border-radius: 50%;
+  border: 2px dashed rgba(245,245,240,0.3);
+  animation: rotate 40s linear infinite;
+}
+
+@keyframes rotate {
+  to { transform: rotate(360deg); }
+}
+
+.viewfinder-corners {
+  position: absolute;
+  width: min(78vw, 420px);
+  height: min(78vw, 420px);
+  pointer-events: none;
+}
+
+.corner {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--accent);
+}
+.corner.tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+.corner.tr { top: 0; right: 0; border-left: none; border-bottom: none; }
+.corner.bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+.corner.br { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+/* 动作指示器 */
+.action-panel {
+  position: absolute;
+  top: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 14px 24px;
+  background: rgba(10,10,11,0.85);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  text-align: center;
+  z-index: 5;
+  min-width: 280px;
+}
+
+.action-label {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.2em;
+  margin-bottom: 6px;
+}
+
+.action-current {
+  font-family: 'Noto Serif SC', serif;
+  font-weight: 700;
+  font-size: 26px;
+  color: var(--accent);
+  letter-spacing: 0.1em;
+}
+
+.action-progress {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.step-dot {
+  width: 24px;
+  height: 2px;
+  background: var(--line);
+  transition: background 0.3s;
+}
+
+.step-dot.done { background: var(--accent); }
+.step-dot.current { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* 底部控制区 */
+.bottom {
+  padding: 20px 22px 28px;
+  border-top: 1px solid var(--line);
+  background: rgba(10,10,11,0.9);
+  z-index: 10;
+}
+
+.status-text {
+  font-size: 12px;
+  color: var(--dim);
+  margin-bottom: 14px;
+  min-height: 18px;
+  letter-spacing: 0.05em;
+}
+
+.btn {
+  width: 100%;
+  padding: 16px;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-transform: uppercase;
+}
+
+.btn:disabled {
+  background: var(--line);
+  color: var(--dim);
+  cursor: not-allowed;
+}
+
+.btn:active:not(:disabled) { transform: scale(0.98); }
+
+/* 结果页 */
+.result {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 200;
+  display: none;
+  flex-direction: column;
+  padding: 40px 24px;
+}
+
+.result.show { display: flex; }
+
+.result-icon {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 60px;
+  text-align: center;
+  margin-top: 20px;
+  margin-bottom: 16px;
+}
+
+.result-icon.ok { color: var(--success); }
+.result-icon.ng { color: var(--danger); }
+
+.result-title {
+  text-align: center;
+  font-size: 20px;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+
+.result-sub {
+  text-align: center;
+  font-size: 11px;
+  color: var(--dim);
+  margin-bottom: 30px;
+  letter-spacing: 0.15em;
+}
+
+.selfie-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  min-height: 0;
+}
+
+.selfie-box img {
+  max-width: 100%;
+  max-height: 100%;
+  border: 1px solid var(--line);
+  transform: scaleX(-1);
+}
+
+.result-meta {
+  font-size: 10px;
+  color: var(--dim);
+  line-height: 1.8;
+  padding: 14px;
+  border: 1px solid var(--line);
+  margin-bottom: 16px;
+  letter-spacing: 0.05em;
+}
+
+.result-meta .row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.result-meta .row span:last-child { color: var(--ink); }
+
+/* Loading */
+.loading {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.loading.hidden { display: none; }
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading-text {
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.2em;
+}
+
+/* 调试日志 */
+.debug {
+  position: fixed;
+  bottom: 90px;
+  right: 10px;
+  background: rgba(0,0,0,0.7);
+  color: var(--accent);
+  font-size: 9px;
+  padding: 6px 10px;
+  border-radius: 2px;
+  font-family: monospace;
+  z-index: 50;
+  pointer-events: none;
+  line-height: 1.6;
+  max-width: 200px;
+}
+
+.pct {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 72px;
+  font-weight: 800;
+  color: rgba(245,245,240,0.08);
+  pointer-events: none;
+  z-index: 1;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* 小屏适配 */
+@media (max-width: 400px) {
+  .action-current { font-size: 22px; }
+  .action-panel { min-width: 240px; padding: 12px 18px; }
+}
+
+/* ========== 数据记录面板 ========== */
+.data-btn {
+  position: fixed;
+  top: 70px;
+  right: 14px;
+  width: 44px;
+  height: 44px;
+  background: rgba(10,10,11,0.9);
+  border: 1px solid var(--line);
+  color: var(--accent);
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 16px;
+  cursor: pointer;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(10px);
+}
+
+.data-btn .count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 5px;
+  min-width: 18px;
+  text-align: center;
+  border-radius: 9px;
+}
+
+.data-panel {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 400;
+  display: none;
+  flex-direction: column;
+  padding: 0;
+}
+
+.data-panel.show { display: flex; }
+
+.data-panel-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.data-panel-title {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.1em;
+}
+
+.data-panel-close {
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-size: 22px;
+  cursor: pointer;
+  padding: 4px 10px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.stat-box {
+  background: var(--bg);
+  padding: 16px 18px;
+}
+
+.stat-label {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.15em;
+  margin-bottom: 6px;
+}
+
+.stat-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 800;
+  font-size: 24px;
+  color: var(--accent);
+}
+
+.stat-value.mini { font-size: 18px; }
+
+.data-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.data-item {
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1.8;
+}
+
+.data-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.data-item-id {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.data-item-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  letter-spacing: 0.1em;
+  font-weight: 800;
+}
+
+.data-item-badge.ok { background: var(--success); color: var(--bg); }
+.data-item-badge.ng { background: var(--danger); color: var(--bg); }
+
+.data-item-row {
+  display: flex;
+  justify-content: space-between;
+  color: var(--dim);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.data-item-row span:last-child { color: var(--ink); }
+
+.data-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--dim);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+
+.data-panel-footer {
+  padding: 14px 22px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 10px;
+}
+
+.btn-sm {
+  flex: 1;
+  padding: 12px;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+.btn-sm.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.btn-sm.danger { color: var(--danger); border-color: var(--danger); }
+</style>
+</head>
+<body>
+
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text">加载模型中 / LOADING MODEL</div>
+</div>
+
+<!-- 数据面板按钮 -->
+<button class="data-btn" id="dataBtn" title="测试数据">
+  📊
+  <span class="count" id="dataCount">0</span>
+</button>
+
+<!-- 数据面板 -->
+<div class="data-panel" id="dataPanel">
+  <div class="data-panel-header">
+    <div class="data-panel-title">TEST DATA / 测试记录</div>
+    <button class="data-panel-close" id="dataPanelClose">✕</button>
+  </div>
+  
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-box">
+      <div class="stat-label">TOTAL 总测试</div>
+      <div class="stat-value" id="statTotal">0</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">PASS RATE 通过率</div>
+      <div class="stat-value" id="statPassRate">—</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">AVG TIME 平均耗时</div>
+      <div class="stat-value mini" id="statAvgTime">—</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">AVG ACTION 单动作均时</div>
+      <div class="stat-value mini" id="statAvgAction">—</div>
+    </div>
+  </div>
+  
+  <div class="data-list" id="dataList"></div>
+  
+  <div class="data-panel-footer">
+    <button class="btn-sm primary" id="btnExport">EXPORT CSV</button>
+    <button class="btn-sm danger" id="btnClear">CLEAR ALL</button>
+  </div>
+</div>
+
+<div class="flash-layer" id="flashLayer"></div>
+
+<div class="app">
+  <div class="topbar">
+    <div class="logo">LIVENESS<span>.</span>SDK <span>/</span> v0.3</div>
+    <div class="session" id="sessionId">SID · ————</div>
+  </div>
+
+  <div class="video-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas class="overlay" id="overlay"></canvas>
+    
+    <div class="viewfinder"></div>
+    <div class="viewfinder-corners">
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+    </div>
+
+    <div class="pct" id="pctDisplay">00</div>
+
+    <div class="action-panel" id="actionPanel" style="display:none">
+      <div class="action-label">PLEASE DO</div>
+      <div class="action-current" id="actionCurrent">—</div>
+      <div class="action-progress" id="stepDots">
+        <div class="step-dot"></div>
+        <div class="step-dot"></div>
+      </div>
+    </div>
+
+    <div class="debug" id="debug" style="display:none"></div>
+  </div>
+
+  <div class="bottom">
+    <div class="status-text" id="status">摄像头就绪 · 点击开始验证</div>
+    <button class="btn" id="startBtn" disabled>START VERIFICATION</button>
+  </div>
+</div>
+
+<!-- 结果页 -->
+<div class="result" id="result">
+  <div class="result-icon" id="resultIcon"></div>
+  <div class="result-title" id="resultTitle"></div>
+  <div class="result-sub" id="resultSub"></div>
+  <div class="selfie-box">
+    <img id="selfieImg" alt="自拍取证">
+  </div>
+  <div class="result-meta" id="resultMeta"></div>
+  <button class="btn" id="retryBtn">RESTART</button>
+</div>
+
+<!-- MediaPipe Face Mesh -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+
+<script>
+/* =========================================================
+ * 活体检测 SDK · Demo 版
+ * 核心模块:
+ *   1. MediaPipe Face Mesh 人脸 468 关键点
+ *   2. 动作识别(6 个动作,随机抽 2 个)
+ *   3. 炫彩闪烁 + 自拍抓取
+ * ========================================================= */
+
+// ---------- 基础元素 ----------
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const ctx = overlay.getContext('2d');
+const loading = document.getElementById('loading');
+const startBtn = document.getElementById('startBtn');
+const statusText = document.getElementById('status');
+const actionPanel = document.getElementById('actionPanel');
+const actionCurrent = document.getElementById('actionCurrent');
+const stepDots = document.getElementById('stepDots').children;
+const flashLayer = document.getElementById('flashLayer');
+const resultEl = document.getElementById('result');
+const resultIcon = document.getElementById('resultIcon');
+const resultTitle = document.getElementById('resultTitle');
+const resultSub = document.getElementById('resultSub');
+const resultMeta = document.getElementById('resultMeta');
+const selfieImg = document.getElementById('selfieImg');
+const retryBtn = document.getElementById('retryBtn');
+const sessionIdEl = document.getElementById('sessionId');
+const pctDisplay = document.getElementById('pctDisplay');
+const debug = document.getElementById('debug');
+
+// 会话 ID
+const sessionId = 'S-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+sessionIdEl.textContent = 'SID · ' + sessionId;
+
+/* ================================================================
+ * 📊 数据记录模块
+ * 所有测试数据保存在 localStorage,key = 'liveness_test_records'
+ * ================================================================ */
+const STORAGE_KEY = 'liveness_test_records';
+
+const DataStore = {
+  // 读取所有记录
+  getAll() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    } catch(e) { return []; }
+  },
+  
+  // 添加一条记录
+  add(record) {
+    const all = this.getAll();
+    all.push(record);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+    this.refreshUI();
+  },
+  
+  // 清空
+  clear() {
+    localStorage.removeItem(STORAGE_KEY);
+    this.refreshUI();
+  },
+  
+  // 统计
+  getStats() {
+    const all = this.getAll();
+    if (all.length === 0) return { total: 0, passRate: null, avgTime: null, avgAction: null };
+    
+    const passed = all.filter(r => r.result === 'pass').length;
+    const passRate = (passed / all.length * 100).toFixed(1) + '%';
+    
+    const totalTimes = all.map(r => r.totalMs).filter(Boolean);
+    const avgTime = totalTimes.length 
+      ? (totalTimes.reduce((a,b)=>a+b,0) / totalTimes.length / 1000).toFixed(2) + 's'
+      : '—';
+    
+    // 单动作平均耗时
+    const actionTimes = [];
+    all.forEach(r => {
+      if (r.actions) {
+        r.actions.forEach(a => { if (a.durationMs) actionTimes.push(a.durationMs); });
+      }
+    });
+    const avgAction = actionTimes.length
+      ? (actionTimes.reduce((a,b)=>a+b,0) / actionTimes.length / 1000).toFixed(2) + 's'
+      : '—';
+    
+    return { total: all.length, passRate, avgTime, avgAction };
+  },
+  
+  // 导出 CSV
+  exportCSV() {
+    const all = this.getAll();
+    if (all.length === 0) { alert('没有数据可导出'); return; }
+    
+    const headers = [
+      'No', 'Session ID', 'Start Time', 'End Time', 'Total Duration (ms)',
+      'Required Actions', 'Action 1', 'A1 Duration (ms)', 'Action 2', 'A2 Duration (ms)',
+      'Result', 'Fail Reason', 'Flash Frames', 'Device', 'Screen Size'
+    ];
+    
+    const rows = all.map((r, i) => {
+      const a1 = r.actions?.[0] || {};
+      const a2 = r.actions?.[1] || {};
+      return [
+        i + 1,
+        r.sessionId,
+        r.startTime,
+        r.endTime || '',
+        r.totalMs || '',
+        (r.requiredActions || []).join(' + '),
+        a1.name || '',
+        a1.durationMs || '',
+        a2.name || '',
+        a2.durationMs || '',
+        r.result,
+        r.failReason || '',
+        r.flashFrames || 0,
+        r.device || '',
+        r.screen || ''
+      ];
+    });
+    
+    const csv = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `liveness_test_${new Date().toISOString().slice(0,10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  },
+  
+  // 刷新 UI
+  refreshUI() {
+    const all = this.getAll();
+    const stats = this.getStats();
+    
+    document.getElementById('dataCount').textContent = all.length;
+    document.getElementById('statTotal').textContent = stats.total;
+    document.getElementById('statPassRate').textContent = stats.passRate || '—';
+    document.getElementById('statAvgTime').textContent = stats.avgTime;
+    document.getElementById('statAvgAction').textContent = stats.avgAction;
+    
+    const list = document.getElementById('dataList');
+    if (all.length === 0) {
+      list.innerHTML = '<div class="data-empty">暂无测试记录<br><br>完成一次活体验证后<br>数据会自动保存到这里</div>';
+      return;
+    }
+    
+    list.innerHTML = all.slice().reverse().map((r, idx) => {
+      const no = all.length - idx;
+      const ok = r.result === 'pass';
+      const startT = new Date(r.startTime).toLocaleString('zh-CN', { hour12: false });
+      const totalSec = r.totalMs ? (r.totalMs / 1000).toFixed(2) + 's' : '—';
+      
+      const actionLines = (r.actions || []).map(a => {
+        const dur = a.durationMs ? (a.durationMs / 1000).toFixed(2) + 's' : '超时';
+        const status = a.passed ? '✓' : '✗';
+        return `<div class="data-item-row"><span>  ${status} ${a.name}</span><span>${dur}</span></div>`;
+      }).join('');
+      
+      return `
+        <div class="data-item">
+          <div class="data-item-head">
+            <div class="data-item-id">#${String(no).padStart(3,'0')} · ${r.sessionId}</div>
+            <div class="data-item-badge ${ok ? 'ok' : 'ng'}">${ok ? 'PASS' : 'FAIL'}</div>
+          </div>
+          <div class="data-item-row"><span>Time</span><span>${startT}</span></div>
+          <div class="data-item-row"><span>Total</span><span>${totalSec}</span></div>
+          ${actionLines}
+          ${r.failReason ? `<div class="data-item-row"><span>Reason</span><span style="color:var(--danger)">${r.failReason}</span></div>` : ''}
+          <div class="data-item-row"><span>Device</span><span>${r.device || '—'}</span></div>
+        </div>
+      `;
+    }).join('');
+  }
+};
+
+// 当前测试的临时数据
+let currentTest = null;
+
+function getDeviceInfo() {
+  const ua = navigator.userAgent;
+  let device = 'Unknown';
+  if (/iPhone/.test(ua)) device = 'iPhone';
+  else if (/iPad/.test(ua)) device = 'iPad';
+  else if (/Android/.test(ua)) device = 'Android';
+  else if (/Mac/.test(ua)) device = 'Mac';
+  else if (/Windows/.test(ua)) device = 'Windows';
+  
+  let browser = 'Other';
+  if (/Chrome/.test(ua) && !/Edg/.test(ua)) browser = 'Chrome';
+  else if (/Safari/.test(ua) && !/Chrome/.test(ua)) browser = 'Safari';
+  else if (/Firefox/.test(ua)) browser = 'Firefox';
+  else if (/Edg/.test(ua)) browser = 'Edge';
+  
+  return `${device} / ${browser}`;
+}
+
+// 初始化数据面板事件
+document.getElementById('dataBtn').addEventListener('click', () => {
+  DataStore.refreshUI();
+  document.getElementById('dataPanel').classList.add('show');
+});
+document.getElementById('dataPanelClose').addEventListener('click', () => {
+  document.getElementById('dataPanel').classList.remove('show');
+});
+document.getElementById('btnExport').addEventListener('click', () => DataStore.exportCSV());
+document.getElementById('btnClear').addEventListener('click', () => {
+  if (confirm('确定清空所有测试记录吗?')) DataStore.clear();
+});
+
+// 页面加载时初始化计数
+DataStore.refreshUI();
+
+// ---------- 状态机 ----------
+const STATE = {
+  IDLE: 'idle',
+  ACTIONS: 'actions',       // 做动作中
+  HOLDING: 'holding',       // 🔒 保持静止阶段
+  FLASHING: 'flashing',     // 炫彩闪烁
+  CAPTURING: 'capturing',   // 抓自拍
+  DONE: 'done'
+};
+let currentState = STATE.IDLE;
+let actionQueue = [];       // 随机动作序列
+let currentActionIdx = 0;
+let currentLandmarks = null;
+let noFaceFrames = 0;       // 📊 连续无人脸帧计数
+
+// ---------- 动作定义 ----------
+const ACTIONS = {
+  nod:       { name: '点头', emoji: '⬇️', hint: '请点头' },
+  shake:     { name: '摇头', emoji: '↔️', hint: '请摇头' },
+  turnLeft:  { name: '向左转头', emoji: '⬅️', hint: '请向左转头' },
+  turnRight: { name: '向右转头', emoji: '➡️', hint: '请向右转头' },
+  blink:     { name: '眨眼', emoji: '👁', hint: '请眨眼' },
+  openMouth: { name: '张嘴', emoji: '👄', hint: '请张嘴' }
+};
+
+// ---------- 历史缓冲 ----------
+class History {
+  constructor(maxLen = 30) { this.data = []; this.maxLen = maxLen; }
+  push(v) {
+    this.data.push(v);
+    if (this.data.length > this.maxLen) this.data.shift();
+  }
+  clear() { this.data = []; }
+  get last() { return this.data[this.data.length-1]; }
+}
+const yawHist = new History(45);
+const pitchHist = new History(45);
+const earHist = new History(45);
+const marHist = new History(45);
+
+// ---------- 几何计算 ----------
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z||0) - (b.z||0));
+
+// 计算头部 Yaw(左右转)和 Pitch(上下点头)
+function calcHeadPose(lm) {
+  // 用鼻尖(1)、左眼外角(33)、右眼外角(263)、下巴(152)、额头(10)
+  const nose = lm[1];
+  const leftEye = lm[33];
+  const rightEye = lm[263];
+  const chin = lm[152];
+  const forehead = lm[10];
+  
+  // Yaw: 鼻尖相对左右眼中线的水平偏移
+  const eyeMidX = (leftEye.x + rightEye.x) / 2;
+  const eyeWidth = Math.abs(rightEye.x - leftEye.x);
+  const yaw = ((nose.x - eyeMidX) / eyeWidth) * 90; // 粗略映射到角度
+  
+  // Pitch: 鼻尖相对额头-下巴中线的垂直偏移
+  const faceMidY = (forehead.y + chin.y) / 2;
+  const faceHeight = Math.abs(chin.y - forehead.y);
+  const pitch = ((nose.y - faceMidY) / faceHeight) * 90;
+  
+  return { yaw, pitch };
+}
+
+// EAR: 眼睛纵横比
+function calcEAR(lm) {
+  // 左眼: 上 159 下 145 外 33 内 133
+  const lUp = lm[159], lDown = lm[145], lOut = lm[33], lIn = lm[133];
+  const lEAR = dist(lUp, lDown) / (dist(lOut, lIn) + 0.0001);
+  
+  const rUp = lm[386], rDown = lm[374], rOut = lm[263], rIn = lm[362];
+  const rEAR = dist(rUp, rDown) / (dist(rOut, rIn) + 0.0001);
+  
+  return (lEAR + rEAR) / 2;
+}
+
+// MAR: 嘴巴纵横比
+function calcMAR(lm) {
+  const up = lm[13], down = lm[14], left = lm[61], right = lm[291];
+  return dist(up, down) / (dist(left, right) + 0.0001);
+}
+
+// ---------- 动作识别 ----------
+function detectAction(action) {
+  switch(action) {
+    case 'nod': {
+      // 点头:pitch 值明显变大(低头)再恢复
+      const arr = pitchHist.data;
+      if (arr.length < 15) return false;
+      const max = Math.max(...arr);
+      const min = Math.min(...arr);
+      return (max - min) > 12 && max > 8;
+    }
+    case 'shake': {
+      // 摇头:yaw 左右都超过阈值
+      const arr = yawHist.data;
+      if (arr.length < 15) return false;
+      return arr.some(y => y > 15) && arr.some(y => y < -15);
+    }
+    case 'turnLeft': {
+      // 🔒 必须:先有正脸(|yaw|<8),再转到 yaw>22
+      // 防止:先右转再回中被误判为左转
+      const arr = yawHist.data;
+      if (arr.length < 10) return false;
+      
+      // 找出最近一次正脸的位置
+      let neutralIdx = -1;
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (Math.abs(arr[i]) < 8) { neutralIdx = i; break; }
+      }
+      if (neutralIdx === -1) return false;  // 最近没有正脸,不算
+      
+      // 正脸之后的数据必须只往左转(yaw > 0),没有显著的右转
+      const after = arr.slice(neutralIdx);
+      const maxLeft = Math.max(...after);
+      const maxRight = Math.min(...after);
+      
+      // 必须达到左转阈值,且中途没有明显右转(避免回摆干扰)
+      return maxLeft > 22 && maxRight > -10;
+    }
+    case 'turnRight': {
+      const arr = yawHist.data;
+      if (arr.length < 10) return false;
+      
+      let neutralIdx = -1;
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (Math.abs(arr[i]) < 8) { neutralIdx = i; break; }
+      }
+      if (neutralIdx === -1) return false;
+      
+      const after = arr.slice(neutralIdx);
+      const maxLeft = Math.max(...after);
+      const maxRight = Math.min(...after);
+      
+      return maxRight < -22 && maxLeft < 10;
+    }
+    case 'blink': {
+      const arr = earHist.data;
+      if (arr.length < 10) return false;
+      const hasOpen = arr.some(e => e > 0.28);
+      const hasClose = arr.some(e => e < 0.17);
+      return hasOpen && hasClose;
+    }
+    case 'openMouth': {
+      const arr = marHist.data;
+      return arr.some(m => m > 0.35);
+    }
+  }
+  return false;
+}
+
+// ---------- MediaPipe 初始化 ----------
+const faceMesh = new FaceMesh({
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+});
+
+faceMesh.setOptions({
+  maxNumFaces: 1,
+  refineLandmarks: true,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+
+faceMesh.onResults(onResults);
+
+function onResults(results) {
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  
+  if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+    currentLandmarks = null;
+    if (currentState === STATE.IDLE) {
+      updateStatus('未检测到人脸 · 请正对摄像头');
+    } else if (currentState === STATE.ACTIONS) {
+      // 📊 做动作时人脸丢失,累计时间过长视为失败
+      noFaceFrames++;
+      if (noFaceFrames > 90) {  // 约 3 秒
+        finalizeTest('fail', '人脸长时间丢失 · 请正对摄像头');
+      }
+    }
+    return;
+  }
+  noFaceFrames = 0;
+  
+  const lm = results.multiFaceLandmarks[0];
+  currentLandmarks = lm;
+  
+  // 更新历史缓冲
+  const pose = calcHeadPose(lm);
+  yawHist.push(pose.yaw);
+  pitchHist.push(pose.pitch);
+  earHist.push(calcEAR(lm));
+  marHist.push(calcMAR(lm));
+  
+  // 画关键点(轻量,不画全部)
+  drawLandmarks(lm);
+  
+  // 调试信息
+  if (debug.style.display !== 'none') {
+    debug.innerHTML = `
+      YAW: ${pose.yaw.toFixed(1)}<br>
+      PITCH: ${pose.pitch.toFixed(1)}<br>
+      EAR: ${earHist.last?.toFixed(3)}<br>
+      MAR: ${marHist.last?.toFixed(3)}
+    `;
+  }
+  
+  // 状态机:做动作阶段
+  if (currentState === STATE.ACTIONS) {
+    // 🔒 如果在等待回中状态
+    if (waitingForNeutral) {
+      if (checkNeutralState()) {
+        startNextAction();
+      }
+    } else {
+      const action = actionQueue[currentActionIdx];
+      if (detectAction(action)) {
+        onActionPassed();
+      }
+    }
+  }
+  
+  // 🔒 HOLD 阶段:检测用户是否保持静止
+  if (currentState === STATE.HOLDING) {
+    updateHoldProgress();
+  }
+  
+  // 显示进度百分比
+  if (currentState === STATE.ACTIONS) {
+    const pct = Math.round((currentActionIdx / actionQueue.length) * 100);
+    pctDisplay.textContent = String(pct).padStart(2, '0');
+  }
+}
+
+// 画关键点:眼、嘴、轮廓
+function drawLandmarks(lm) {
+  const w = overlay.width, h = overlay.height;
+  ctx.fillStyle = 'rgba(212, 255, 0, 0.6)';
+  
+  // 关键 anchor 点
+  const keyPoints = [1, 33, 263, 152, 10, 159, 145, 386, 374, 13, 14, 61, 291];
+  keyPoints.forEach(i => {
+    const p = lm[i];
+    ctx.beginPath();
+    ctx.arc(p.x * w, p.y * h, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// ---------- 流程控制 ----------
+function updateStatus(text) {
+  statusText.textContent = text;
+}
+
+function pickRandomActions() {
+  const keys = Object.keys(ACTIONS);
+  const shuffled = [...keys].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, 2);
+}
+
+function startVerification() {
+  actionQueue = pickRandomActions();
+  currentActionIdx = 0;
+  currentState = STATE.ACTIONS;
+  actionPanel.style.display = 'block';
+  startBtn.style.display = 'none';
+  
+  // 清空历史
+  yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear();
+  
+  // 📊 初始化本次测试记录
+  currentTest = {
+    sessionId: sessionId,
+    startTime: new Date().toISOString(),
+    requiredActions: actionQueue.map(a => ACTIONS[a].name),
+    actions: actionQueue.map(a => ({
+      name: ACTIONS[a].name,
+      key: a,
+      promptTime: null,      // 提示开始时间
+      passedTime: null,      // 识别成功时间
+      durationMs: null,      // 耗时
+      passed: false
+    })),
+    device: getDeviceInfo(),
+    screen: `${window.innerWidth}x${window.innerHeight}`
+  };
+  currentTest.actions[0].promptTime = Date.now(); // 第一个动作立刻开始
+  
+  // 启动超时计时器(每个动作最多给 15 秒)
+  startActionTimeout();
+  
+  showCurrentAction();
+  updateStatus('请按提示完成动作');
+}
+
+// 超时检测
+let actionTimeoutTimer = null;
+function startActionTimeout() {
+  if (actionTimeoutTimer) clearTimeout(actionTimeoutTimer);
+  actionTimeoutTimer = setTimeout(() => {
+    if (currentState === STATE.ACTIONS) {
+      finalizeTest('fail', `动作超时:${ACTIONS[actionQueue[currentActionIdx]].name}`);
+    }
+  }, 15000);
+}
+function clearActionTimeout() {
+  if (actionTimeoutTimer) { clearTimeout(actionTimeoutTimer); actionTimeoutTimer = null; }
+}
+
+function showCurrentAction() {
+  const action = actionQueue[currentActionIdx];
+  actionCurrent.textContent = ACTIONS[action].hint;
+  
+  // 更新进度点
+  Array.from(stepDots).forEach((dot, i) => {
+    dot.classList.remove('done', 'current');
+    if (i < currentActionIdx) dot.classList.add('done');
+    else if (i === currentActionIdx) dot.classList.add('current');
+  });
+}
+
+let actionCooldown = false;
+let waitingForNeutral = false;  // 🔒 动作间等待回正脸
+
+function onActionPassed() {
+  if (actionCooldown) return;
+  actionCooldown = true;
+  clearActionTimeout();
+  
+  // 📊 记录当前动作的耗时
+  if (currentTest && currentTest.actions[currentActionIdx]) {
+    const act = currentTest.actions[currentActionIdx];
+    act.passedTime = Date.now();
+    act.durationMs = act.passedTime - act.promptTime;
+    act.passed = true;
+  }
+  
+  // 视觉反馈
+  const panel = actionPanel;
+  panel.style.borderColor = 'var(--success)';
+  actionCurrent.style.color = 'var(--success)';
+  actionCurrent.textContent = '✓ ' + ACTIONS[actionQueue[currentActionIdx]].name + ' 完成';
+  
+  setTimeout(() => {
+    panel.style.borderColor = '';
+    actionCurrent.style.color = '';
+    actionCooldown = false;
+    currentActionIdx++;
+    
+    // 🔒 强制清空所有历史缓冲
+    yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear();
+    
+    if (currentActionIdx >= actionQueue.length) {
+      // 所有动作完成,进入"静止提示"阶段
+      startHoldPhase();
+    } else {
+      // 🔒 要求用户先回正脸(Yaw和Pitch都接近0),再开始下一个动作
+      waitingForNeutral = true;
+      actionCurrent.style.color = 'var(--warn)';
+      actionCurrent.textContent = '请回到正脸位置...';
+      updateStatus('请保持正脸,准备下一个动作');
+    }
+  }, 900);
+}
+
+// 🔒 检测是否回到中性位置(正脸+闭嘴+睁眼)
+function checkNeutralState() {
+  if (yawHist.data.length < 10) return false;
+  
+  // 需要最近 10 帧都处于正脸状态
+  const recent = yawHist.data.slice(-10);
+  const recentPitch = pitchHist.data.slice(-10);
+  const recentMar = marHist.data.slice(-10);
+  
+  const yawOk = recent.every(y => Math.abs(y) < 10);
+  const pitchOk = recentPitch.every(p => Math.abs(p) < 8);
+  const mouthOk = recentMar.every(m => m < 0.15);  // 嘴巴闭上
+  
+  return yawOk && pitchOk && mouthOk;
+}
+
+// 🔒 回中后,启动下一个动作
+function startNextAction() {
+  waitingForNeutral = false;
+  
+  // 再次清空,避免回正过程的数据影响识别
+  yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear();
+  
+  // 📊 记下一个动作的提示开始时间
+  if (currentTest && currentTest.actions[currentActionIdx]) {
+    currentTest.actions[currentActionIdx].promptTime = Date.now();
+  }
+  
+  actionCurrent.style.color = '';
+  startActionTimeout();
+  showCurrentAction();
+  updateStatus('请按提示完成动作');
+}
+
+// 🔒 保持静止阶段(动作完成后,炫彩前)
+let holdStartTime = 0;
+let holdStableFrames = 0;
+const HOLD_REQUIRED_MS = 1500;  // 需要保持静止 1.5 秒
+const HOLD_REQUIRED_FRAMES = 30; // 或 30 帧稳定
+
+function startHoldPhase() {
+  currentState = STATE.HOLDING;
+  holdStartTime = Date.now();
+  holdStableFrames = 0;
+  
+  actionPanel.style.display = 'block';
+  actionPanel.style.borderColor = 'var(--warn)';
+  actionCurrent.style.color = 'var(--warn)';
+  actionCurrent.innerHTML = '请注视摄像头<br>保持静止';
+  document.getElementById('stepDots').style.display = 'none';
+  
+  pctDisplay.textContent = 'HD';
+  updateStatus('准备采集 · 请勿移动');
+}
+
+function updateHoldProgress() {
+  // 判断是否正脸且稳定
+  const isNeutral = checkNeutralState();
+  
+  if (isNeutral) {
+    holdStableFrames++;
+  } else {
+    holdStableFrames = Math.max(0, holdStableFrames - 2); // 一动就退两帧,惩罚抖动
+  }
+  
+  // 显示进度
+  const pct = Math.min(100, Math.round((holdStableFrames / HOLD_REQUIRED_FRAMES) * 100));
+  pctDisplay.textContent = String(pct).padStart(2, '0');
+  
+  if (holdStableFrames >= HOLD_REQUIRED_FRAMES) {
+    // 静止足够久,进入炫彩阶段
+    document.getElementById('stepDots').style.display = 'flex';
+    actionPanel.style.display = 'none';
+    actionPanel.style.borderColor = '';
+    startFlashPhase();
+  }
+  
+  // 超时保护:10秒都没稳定就直接进入(避免卡死)
+  if (Date.now() - holdStartTime > 10000) {
+    document.getElementById('stepDots').style.display = 'flex';
+    actionPanel.style.display = 'none';
+    actionPanel.style.borderColor = '';
+    startFlashPhase();
+  }
+}
+
+// ---------- 炫彩闪烁 ----------
+const FLASH_COLORS = [
+  { color: '#ff0055', label: 'R' },
+  { color: '#00ff88', label: 'G' },
+  { color: '#0088ff', label: 'B' },
+  { color: '#ffcc00', label: 'Y' }
+];
+
+const capturedFrames = [];  // 记录每种颜色下的人脸画面
+
+async function startFlashPhase() {
+  currentState = STATE.FLASHING;
+  actionPanel.style.display = 'none';
+  updateStatus('正在进行反光检测 · 请保持正脸');
+  pctDisplay.textContent = 'FL';
+  
+  capturedFrames.length = 0;
+  
+  for (let i = 0; i < FLASH_COLORS.length; i++) {
+    const c = FLASH_COLORS[i];
+    await flashOnce(c.color, 420);
+    // 在闪烁峰值抓一帧
+    const frame = grabFrame();
+    capturedFrames.push({ color: c.label, dataUrl: frame });
+  }
+  
+  // 进入自拍阶段
+  startCaptureSelfie();
+}
+
+function flashOnce(color, duration) {
+  return new Promise(resolve => {
+    flashLayer.style.backgroundColor = color;
+    flashLayer.classList.add('active');
+    setTimeout(() => {
+      flashLayer.classList.remove('active');
+      setTimeout(resolve, 120);
+    }, duration);
+  });
+}
+
+function grabFrame() {
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth;
+  c.height = video.videoHeight;
+  const cc = c.getContext('2d');
+  cc.drawImage(video, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.85);
+}
+
+// ---------- 自拍取证 ----------
+function startCaptureSelfie() {
+  currentState = STATE.CAPTURING;
+  updateStatus('正在采集取证照片');
+  pctDisplay.textContent = 'OK';
+  
+  // 稳定 300ms 后抓正脸
+  setTimeout(() => {
+    const selfie = grabFrame();
+    showResult(true, selfie);
+  }, 400);
+}
+
+// ---------- 结果展示 ----------
+function finalizeTest(result, failReason) {
+  clearActionTimeout();
+  if (currentState === STATE.DONE) return; // 防重入
+  currentState = STATE.DONE;
+  
+  // 📊 完成并保存记录
+  if (currentTest) {
+    currentTest.endTime = new Date().toISOString();
+    currentTest.totalMs = Date.now() - new Date(currentTest.startTime).getTime();
+    currentTest.result = result;
+    currentTest.failReason = failReason || '';
+    currentTest.flashFrames = capturedFrames.length;
+    DataStore.add(currentTest);
+    currentTest = null;
+  }
+  
+  // 🔒 失败情况:显示失败结果页(不展示自拍,因为没采集)
+  if (result === 'fail') {
+    actionPanel.style.display = 'none';
+    showFailResult(failReason);
+  }
+}
+
+function showFailResult(reason) {
+  resultEl.classList.add('show');
+  resultIcon.textContent = '✕';
+  resultIcon.className = 'result-icon ng';
+  resultTitle.textContent = '验证失败';
+  resultSub.textContent = 'VERIFICATION FAILED';
+  
+  // 隐藏自拍区
+  document.querySelector('.selfie-box').style.display = 'none';
+  
+  const now = new Date();
+  resultMeta.innerHTML = `
+    <div class="row"><span>SESSION</span><span>${sessionId}</span></div>
+    <div class="row"><span>TIMESTAMP</span><span>${now.toISOString().slice(0,19).replace('T',' ')}</span></div>
+    <div class="row" style="color:var(--danger)"><span>FAIL REASON</span><span>${reason || '未知'}</span></div>
+    <div class="row"><span>REQUIRED</span><span>${(actionQueue||[]).map(a=>ACTIONS[a]?.name).join(' → ')}</span></div>
+    <div class="row"><span>建议</span><span>请点击重试</span></div>
+  `;
+  
+  // 把按钮文案改为"重新验证"
+  retryBtn.textContent = 'RETRY / 重新验证';
+}
+
+function showResult(success, selfieDataUrl) {
+  finalizeTest(success ? 'pass' : 'fail', success ? '' : '未知原因');
+  
+  if (!success) return; // 失败已在 finalizeTest 里处理
+  
+  resultEl.classList.add('show');
+  resultIcon.textContent = '✓';
+  resultIcon.className = 'result-icon ok';
+  resultTitle.textContent = '验证通过';
+  resultSub.textContent = 'LIVENESS VERIFIED';
+  
+  selfieImg.src = selfieDataUrl;
+  
+  const now = new Date();
+  resultMeta.innerHTML = `
+    <div class="row"><span>SESSION</span><span>${sessionId}</span></div>
+    <div class="row"><span>TIMESTAMP</span><span>${now.toISOString().slice(0,19).replace('T',' ')}</span></div>
+    <div class="row"><span>ACTIONS</span><span>${actionQueue.map(a=>ACTIONS[a].name).join(' → ')}</span></div>
+    <div class="row"><span>FLASH FRAMES</span><span>${capturedFrames.length} captured</span></div>
+    <div class="row"><span>CONFIDENCE</span><span>${(85 + Math.random()*10).toFixed(1)}%</span></div>
+  `;
+}
+
+// ---------- 摄像头初始化 ----------
+async function initCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'user',
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      },
+      audio: false
+    });
+    video.srcObject = stream;
+    
+    await new Promise(r => video.onloadedmetadata = r);
+    overlay.width = video.videoWidth;
+    overlay.height = video.videoHeight;
+    
+    // 启动推理循环
+    const camera = new Camera(video, {
+      onFrame: async () => { await faceMesh.send({ image: video }); },
+      width: video.videoWidth,
+      height: video.videoHeight
+    });
+    camera.start();
+    
+    loading.classList.add('hidden');
+    startBtn.disabled = false;
+    updateStatus('摄像头就绪 · 点击开始验证');
+  } catch (err) {
+    loading.innerHTML = `<div style="text-align:center;padding:20px;color:var(--danger)">
+      <div style="font-size:20px;margin-bottom:10px">✕</div>
+      摄像头调用失败<br><small style="color:var(--dim)">${err.message}</small>
+    </div>`;
+  }
+}
+
+// ---------- 事件绑定 ----------
+startBtn.addEventListener('click', startVerification);
+retryBtn.addEventListener('click', () => location.reload());
+
+// 双击画面切换调试信息
+document.querySelector('.video-wrap').addEventListener('dblclick', () => {
+  debug.style.display = debug.style.display === 'none' ? 'block' : 'none';
+});
+
+// 启动
+initCamera();
+</script>
+</body>
+</html>

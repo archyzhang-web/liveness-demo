@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "name": "liveness-demo",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Permissions-Policy", "value": "camera=(self)" }
+      ]
+    }
+  ]
+}
