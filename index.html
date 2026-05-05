@@ -1174,12 +1174,6 @@ function onResults(results) {
   // 调试信息
   if (debug.style.display !== 'none') {
     const dbgDetail = calcEARDetail(lm);
-    let faceMatchStr = '—';
-    if (flashFaceSignature) {
-      const curSig = calcFaceSignature(lm);
-      const fm = compareFaceSignatures(flashFaceSignature, curSig);
-      faceMatchStr = fm.toFixed(3) + (fm > FACE_MATCH_THRESHOLD ? ' ❌' : ' ✓');
-    }
     debug.innerHTML = `
       YAW: ${pose.yaw.toFixed(1)}<br>
       PITCH: ${pose.pitch.toFixed(1)}<br>
@@ -1187,7 +1181,6 @@ function onResults(results) {
       R-EAR: ${dbgDetail.right.toFixed(3)}<br>
       DIFF: ${dbgDetail.diff.toFixed(3)}<br>
       MAR: ${marHist.last?.toFixed(3)}<br>
-      <b>FACE: ${faceMatchStr}</b><br>
       MOVE: ${(() => {
         const y = yawHist.data.slice(-20), p = pitchHist.data.slice(-20);
         if (y.length < 20) return '—';
@@ -1263,7 +1256,6 @@ function startVerification() {
   currentState = STATE.ACTIONS;
   actionPanel.style.display = 'block';
   startBtn.style.display = 'none';
-  flashFaceSignature = null;  // 清空上一轮的人脸指纹
   captureRetries = 0;
   
   // 清空历史
@@ -1388,11 +1380,6 @@ function checkNeutralState() {
 function startNextAction() {
   waitingForNeutral = false;
 
-  // 🔑 回正后采集人脸指纹(正脸状态下几何比例最稳定)
-  if (!flashFaceSignature && currentLandmarks) {
-    flashFaceSignature = calcFaceSignature(currentLandmarks);
-  }
-
   // 再次清空,避免回正过程的数据影响识别
   yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear(); earDiffHist.clear();
   
@@ -1418,10 +1405,6 @@ function startHoldPhase() {
   holdStartTime = Date.now();
   holdStableFrames = 0;
 
-  // 🔑 如果之前没采到指纹(比如只有1个动作没经过回正),在这里补采
-  if (!flashFaceSignature && currentLandmarks) {
-    flashFaceSignature = calcFaceSignature(currentLandmarks);
-  }
   
   actionPanel.style.display = 'block';
   actionPanel.style.borderColor = 'var(--warn)';
@@ -1440,15 +1423,6 @@ function updateHoldProgress() {
   if (isNeutral) {
     holdStableFrames++;
 
-    // 🔑 回正后才核对人脸一致性(避免动作姿态导致误判)
-    if (holdStableFrames > 5 && flashFaceSignature && currentLandmarks) {
-      const currentSig = calcFaceSignature(currentLandmarks);
-      const faceDiff = compareFaceSignatures(flashFaceSignature, currentSig);
-      if (faceDiff > FACE_MATCH_THRESHOLD) {
-        finalizeTest('fail', '人脸不一致 · Face mismatch detected');
-        return;
-      }
-    }
   } else {
     holdStableFrames = Math.max(0, holdStableFrames - 2);
   }
@@ -1492,25 +1466,120 @@ async function startFlashPhase() {
 
   capturedFrames.length = 0;
 
-  // 📸 补采人脸指纹(正常情况下动作阶段已采集,这里是兜底)
-  if (!flashFaceSignature && currentLandmarks) {
-    flashFaceSignature = calcFaceSignature(currentLandmarks);
-  }
-
   for (let i = 0; i < FLASH_COLORS.length; i++) {
     const c = FLASH_COLORS[i];
     await flashOnce(c.color, 420);
     const frame = grabFrame();
     capturedFrames.push({ color: c.label, dataUrl: frame });
+  }
 
-    // 每帧也采集指纹,取平均提高稳定性
-    if (currentLandmarks && !flashFaceSignature) {
-      flashFaceSignature = calcFaceSignature(currentLandmarks);
-    }
+  // 🔦 炫彩反光分析:检查脸部是否反射了闪烁颜色
+  const flashResult = await analyzeFlashReflection(capturedFrames);
+  if (!flashResult.passed) {
+    finalizeTest('fail', flashResult.reason);
+    return;
   }
 
   // 进入正脸确认阶段(确认后才拍照)
   startReadyCheck();
+}
+
+// 🔦 炫彩反光分析
+// 原理: 真人皮肤会反射屏幕闪烁的颜色(红光下脸偏红,绿光下偏绿)
+// 照片/屏幕不会随外部光源改变颜色(或变化模式不同)
+async function analyzeFlashReflection(frames) {
+  if (frames.length < 4) {
+    return { passed: false, reason: '反光帧不足 · Insufficient flash frames' };
+  }
+
+  try {
+    // 提取每帧脸部区域的平均 RGB
+    const faceColors = [];
+    for (const frame of frames) {
+      const rgb = await extractFaceRegionColor(frame.dataUrl);
+      if (rgb) faceColors.push({ label: frame.color, ...rgb });
+    }
+
+    if (faceColors.length < 4) {
+      return { passed: false, reason: '无法提取脸部颜色 · Cannot extract face color' };
+    }
+
+    // 计算颜色变化量:各帧之间 RGB 的变化幅度
+    const rValues = faceColors.map(c => c.r);
+    const gValues = faceColors.map(c => c.g);
+    const bValues = faceColors.map(c => c.b);
+
+    const rRange = Math.max(...rValues) - Math.min(...rValues);
+    const gRange = Math.max(...gValues) - Math.min(...gValues);
+    const bRange = Math.max(...bValues) - Math.min(...bValues);
+
+    const totalVariation = rRange + gRange + bRange;
+
+    // 真人: 不同颜色光照下,脸部 RGB 会有明显变化(totalVariation > 30)
+    // 照片/屏幕: 自身发光或固定反射, RGB 变化很小(totalVariation < 15)
+    const REFLECTION_THRESHOLD = 15;
+
+    if (totalVariation < REFLECTION_THRESHOLD) {
+      return { passed: false, reason: '未检测到反光变化 · No reflection change detected' };
+    }
+
+    // 额外检查:红光帧的 R 通道应该是最高的
+    const redFrame = faceColors.find(c => c.label === 'R');
+    const greenFrame = faceColors.find(c => c.label === 'G');
+    if (redFrame && greenFrame) {
+      // 红光下 R 应比绿光下 R 高
+      if (redFrame.r <= greenFrame.r) {
+        return { passed: false, reason: '反光颜色异常 · Abnormal reflection pattern' };
+      }
+    }
+
+    return { passed: true, reason: null, totalVariation };
+
+  } catch(e) {
+    console.error('Flash analysis error:', e);
+    // 分析出错时放行(避免误杀),但记录日志
+    return { passed: true, reason: null };
+  }
+}
+
+// 从一帧 dataUrl 中提取脸部中心区域的平均 RGB
+function extractFaceRegionColor(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const ctx2 = c.getContext('2d');
+      ctx2.drawImage(img, 0, 0);
+
+      // 取图像中心 30% 区域作为脸部采样区(大部分情况下脸在中间)
+      const cx = Math.floor(img.width * 0.35);
+      const cy = Math.floor(img.height * 0.25);
+      const cw = Math.floor(img.width * 0.3);
+      const ch = Math.floor(img.height * 0.4);
+
+      const imageData = ctx2.getImageData(cx, cy, cw, ch);
+      const pixels = imageData.data;
+
+      let rSum = 0, gSum = 0, bSum = 0;
+      const pixelCount = pixels.length / 4;
+
+      for (let i = 0; i < pixels.length; i += 4) {
+        rSum += pixels[i];
+        gSum += pixels[i + 1];
+        bSum += pixels[i + 2];
+      }
+
+      resolve({
+        r: Math.round(rSum / pixelCount),
+        g: Math.round(gSum / pixelCount),
+        b: Math.round(bSum / pixelCount),
+      });
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
 }
 
 function flashOnce(color, duration) {
@@ -1600,13 +1669,6 @@ function checkReadyFace() {
 
   // 面部遮挡检测
   if (!checkFaceUnoccluded(currentLandmarks)) return false;
-
-  // 🔑 人脸一致性检测
-  if (flashFaceSignature && currentLandmarks) {
-    const currentSig = calcFaceSignature(currentLandmarks);
-    const faceDiff = compareFaceSignatures(flashFaceSignature, currentSig);
-    if (faceDiff > FACE_MATCH_THRESHOLD) return false;
-  }
 
   // 📸 微动检测:照片完全不动,真人有微颤
   if (!checkMicroMovement()) return false;
