@@ -1523,16 +1523,50 @@ function updateReadyCheck() {
 }
 
 // ---------- 自拍取证 ----------
+let captureRetries = 0;
+const MAX_CAPTURE_RETRIES = 5;
+
 function startCaptureSelfie() {
   currentState = STATE.CAPTURING;
-  updateStatus('正在采集取证照片');
+  updateStatus('正在采集取证照片...');
   pctDisplay.textContent = 'OK';
 
-  // 稳定 300ms 后抓正脸
   setTimeout(() => {
-    const selfie = grabFrame();
-    showResult(true, selfie);
-  }, 400);
+    attemptCapture();
+  }, 300);
+}
+
+function attemptCapture() {
+  // 拍照瞬间再次检查:正脸 + 睁眼 + 无遮挡
+  const lm = currentLandmarks;
+  if (!lm || !checkFaceUnoccluded(lm)) {
+    captureRetries++;
+    if (captureRetries >= MAX_CAPTURE_RETRIES) {
+      finalizeTest('fail', '拍照时检测到面部遮挡,请勿用手挡脸');
+      return;
+    }
+    // 回到正脸确认,重新等
+    updateStatus('检测到遮挡,请放下手 · 重新确认正脸');
+    startReadyCheck();
+    return;
+  }
+
+  // 再检查一次睁眼
+  const minEar = calcMinEAR(lm);
+  if (minEar < 0.20) {
+    captureRetries++;
+    if (captureRetries >= MAX_CAPTURE_RETRIES) {
+      finalizeTest('fail', '拍照时眼睛未睁开');
+      return;
+    }
+    updateStatus('请睁开双眼 · 重新确认');
+    startReadyCheck();
+    return;
+  }
+
+  // 全部通过,拍!
+  const selfie = grabFrame();
+  showResult(true, selfie);
 }
 
 // ---------- 结果展示 ----------
