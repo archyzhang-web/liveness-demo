@@ -1591,22 +1591,35 @@ function flashOnce(color, duration) {
   });
 }
 
-// 闪烁 + 在颜色峰值时抓帧(闪烁300ms后抓,此时颜色最亮且摄像头已曝光适应)
+// 闪烁 + 抓帧
+// 关键: 要让屏幕真正发出颜色光照到用户脸上
+// 方法: 隐藏video画面,让整个屏幕变成纯色,屏幕发光照亮脸部
 function flashAndCapture(color, duration) {
   return new Promise(resolve => {
+    // 1. 让整个屏幕变成纯色(隐藏video但不关摄像头)
+    const videoEl = document.getElementById('video');
+    const overlayEl = document.getElementById('overlay');
+    videoEl.style.visibility = 'hidden';
+    overlayEl.style.visibility = 'hidden';
+
+    // 用闪烁层覆盖全屏,opacity=1 让屏幕全部发出这个颜色的光
     flashLayer.style.backgroundColor = color;
+    flashLayer.style.opacity = '1';
     flashLayer.classList.add('active');
 
-    // 300ms 后抓帧(颜色还亮着,摄像头已经适应了这个颜色)
+    // 2. 等 500ms 让摄像头适应这个颜色光照
     setTimeout(() => {
+      // 3. 抓帧(此时脸被屏幕的颜色光照亮)
       const frame = grabFrame();
 
-      // 再等一会儿再关闭
-      setTimeout(() => {
-        flashLayer.classList.remove('active');
-        setTimeout(() => resolve(frame), 120);
-      }, duration - 300);
-    }, 300);
+      // 4. 恢复
+      flashLayer.style.opacity = '';
+      flashLayer.classList.remove('active');
+      videoEl.style.visibility = '';
+      overlayEl.style.visibility = '';
+
+      setTimeout(() => resolve(frame), 150);
+    }, 500);
   });
 }
 
