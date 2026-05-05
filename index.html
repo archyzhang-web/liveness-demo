@@ -937,6 +937,45 @@ const marHist = new History(45);
 const minEarHist = new History(45);   // 单眼最小EAR
 const earDiffHist = new History(45);  // 左右眼EAR差值,检测单眼闭合
 
+// ---------- 人脸一致性检测 ----------
+// 采集人脸几何指纹:用稳定的骨骼比例(不受表情影响)
+let flashFaceSignature = null;  // 闪烁阶段采集的基准指纹
+const FACE_MATCH_THRESHOLD = 0.25;  // 差异超过此值判定为换人
+
+function calcFaceSignature(lm) {
+  // 选择不受表情影响的骨骼特征点
+  const leftEyeOuter = lm[33];
+  const rightEyeOuter = lm[263];
+  const noseTip = lm[1];
+  const noseBase = lm[2];       // 鼻梁根部
+  const leftCheek = lm[234];    // 左脸颊
+  const rightCheek = lm[454];   // 右脸颊
+  const forehead = lm[10];
+  const chin = lm[152];
+
+  // 以脸宽(左眼外角到右眼外角)为基准单位,消除距离影响
+  const faceWidth = dist(leftEyeOuter, rightEyeOuter);
+  if (faceWidth < 0.01) return null;
+
+  // 5个无量纲比例特征
+  return [
+    dist(forehead, chin) / faceWidth,                         // 脸长宽比
+    dist(noseTip, noseBase) / faceWidth,                      // 鼻长比
+    dist(leftCheek, rightCheek) / faceWidth,                  // 颧骨宽比
+    dist(leftEyeOuter, noseTip) / dist(rightEyeOuter, noseTip),  // 鼻子左右对称比
+    dist(forehead, noseTip) / dist(noseTip, chin),            // 上下脸比例
+  ];
+}
+
+function compareFaceSignatures(sig1, sig2) {
+  if (!sig1 || !sig2 || sig1.length !== sig2.length) return 999;
+  let sumSqDiff = 0;
+  for (let i = 0; i < sig1.length; i++) {
+    sumSqDiff += (sig1[i] - sig2[i]) ** 2;
+  }
+  return Math.sqrt(sumSqDiff / sig1.length);  // RMSE
+}
+
 // ---------- 几何计算 ----------
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z||0) - (b.z||0));
 
@@ -1196,6 +1235,8 @@ function startVerification() {
   currentState = STATE.ACTIONS;
   actionPanel.style.display = 'block';
   startBtn.style.display = 'none';
+  flashFaceSignature = null;  // 清空上一轮的人脸指纹
+  captureRetries = 0;
   
   // 清空历史
   yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear(); earDiffHist.clear();
@@ -1259,7 +1300,12 @@ function onActionPassed() {
   if (actionCooldown) return;
   actionCooldown = true;
   clearActionTimeout();
-  
+
+  // 🔑 第一个动作完成时采集人脸指纹(此刻确定是真人本人)
+  if (!flashFaceSignature && currentLandmarks) {
+    flashFaceSignature = calcFaceSignature(currentLandmarks);
+  }
+
   // 📊 记录当前动作的耗时
   if (currentTest && currentTest.actions[currentActionIdx]) {
     const act = currentTest.actions[currentActionIdx];
@@ -1358,11 +1404,21 @@ function startHoldPhase() {
 function updateHoldProgress() {
   // 判断是否正脸且稳定
   const isNeutral = checkNeutralState();
-  
+
+  // 🔑 Hold阶段也检查人脸一致性,防止动作完成后换人
+  if (flashFaceSignature && currentLandmarks) {
+    const currentSig = calcFaceSignature(currentLandmarks);
+    const faceDiff = compareFaceSignatures(flashFaceSignature, currentSig);
+    if (faceDiff > FACE_MATCH_THRESHOLD) {
+      finalizeTest('fail', '人脸不一致 · Face mismatch detected');
+      return;
+    }
+  }
+
   if (isNeutral) {
     holdStableFrames++;
   } else {
-    holdStableFrames = Math.max(0, holdStableFrames - 2); // 一动就退两帧,惩罚抖动
+    holdStableFrames = Math.max(0, holdStableFrames - 2);
   }
   
   // 显示进度
@@ -1401,17 +1457,26 @@ async function startFlashPhase() {
   actionPanel.style.display = 'none';
   updateStatus('反光检测中 · Flash detection in progress');
   pctDisplay.textContent = 'FL';
-  
+
   capturedFrames.length = 0;
-  
+
+  // 📸 补采人脸指纹(正常情况下动作阶段已采集,这里是兜底)
+  if (!flashFaceSignature && currentLandmarks) {
+    flashFaceSignature = calcFaceSignature(currentLandmarks);
+  }
+
   for (let i = 0; i < FLASH_COLORS.length; i++) {
     const c = FLASH_COLORS[i];
     await flashOnce(c.color, 420);
-    // 在闪烁峰值抓一帧
     const frame = grabFrame();
     capturedFrames.push({ color: c.label, dataUrl: frame });
+
+    // 每帧也采集指纹,取平均提高稳定性
+    if (currentLandmarks && !flashFaceSignature) {
+      flashFaceSignature = calcFaceSignature(currentLandmarks);
+    }
   }
-  
+
   // 进入正脸确认阶段(确认后才拍照)
   startReadyCheck();
 }
@@ -1478,15 +1543,22 @@ function checkReadyFace() {
 
   if (recentYaw.length < 8) return false;
 
-  // 面部遮挡检测(需要当前帧的 landmarks)
+  // 面部遮挡检测
   if (!checkFaceUnoccluded(currentLandmarks)) return false;
+
+  // 🔑 人脸一致性检测:和闪烁阶段的人脸对比,防止中途换人
+  if (flashFaceSignature && currentLandmarks) {
+    const currentSig = calcFaceSignature(currentLandmarks);
+    const faceDiff = compareFaceSignatures(flashFaceSignature, currentSig);
+    if (faceDiff > FACE_MATCH_THRESHOLD) return false;
+  }
 
   const recentDiff = earDiffHist.data.slice(-8);
 
   const yawOk = recentYaw.every(y => Math.abs(y) < 10);
   const pitchOk = recentPitch.every(p => Math.abs(p) < 8);
-  const bothEyesOpen = recentMinEar.every(e => e > 0.23);        // 放宽回 0.23 (兼容手机)
-  const eyesSymmetric = recentDiff.length >= 8 && recentDiff.every(d => d < 0.06);  // 保持严格: 左右差异<0.06
+  const bothEyesOpen = recentMinEar.every(e => e > 0.23);
+  const eyesSymmetric = recentDiff.length >= 8 && recentDiff.every(d => d < 0.06);
   const mouthClosed = recentMar.every(m => m < 0.15);
 
   return yawOk && pitchOk && bothEyesOpen && eyesSymmetric && mouthClosed;
@@ -1542,7 +1614,7 @@ function updateReadyCheck() {
     actionPanel.style.display = 'none';
     actionPanel.style.borderColor = '';
     document.getElementById('stepDots').style.display = 'flex';
-    finalizeTest('fail', '拍照超时 · Capture timeout: keep eyes open');
+    finalizeTest('fail', '拍照超时 · Capture timeout');
   }
 }
 
