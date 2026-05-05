@@ -1188,6 +1188,13 @@ function onResults(results) {
       DIFF: ${dbgDetail.diff.toFixed(3)}<br>
       MAR: ${marHist.last?.toFixed(3)}<br>
       <b>FACE: ${faceMatchStr}</b><br>
+      MOVE: ${(() => {
+        const y = yawHist.data.slice(-20), p = pitchHist.data.slice(-20);
+        if (y.length < 20) return '—';
+        const ym = y.reduce((a,b)=>a+b,0)/y.length, pm = p.reduce((a,b)=>a+b,0)/p.length;
+        const v = y.reduce((s,v)=>s+(v-ym)**2,0)/y.length + p.reduce((s,v)=>s+(v-pm)**2,0)/p.length;
+        return v.toFixed(2) + (v < 0.1 ? ' 📷' : v > 100 ? ' 📱' : ' ✓');
+      })()}<br>
       STATE: ${currentState}
     `;
   }
@@ -1560,6 +1567,29 @@ function checkFaceUnoccluded(lm) {
   return true;
 }
 
+// 📸 微动检测:真人有生理性微颤,照片/屏幕完全静止
+function checkMicroMovement() {
+  // 需要至少 20 帧数据
+  const yaws = yawHist.data.slice(-20);
+  const pitches = pitchHist.data.slice(-20);
+  if (yaws.length < 20) return true;  // 数据不够先放行
+
+  // 计算方差
+  const yawMean = yaws.reduce((a,b) => a+b, 0) / yaws.length;
+  const pitchMean = pitches.reduce((a,b) => a+b, 0) / pitches.length;
+  const yawVar = yaws.reduce((s,v) => s + (v - yawMean)**2, 0) / yaws.length;
+  const pitchVar = pitches.reduce((s,v) => s + (v - pitchMean)**2, 0) / pitches.length;
+
+  const totalVar = yawVar + pitchVar;
+
+  // 真人微颤: 方差通常在 0.5 ~ 50 之间
+  // 照片/屏幕: 方差接近 0 (完全不动) 或者极高 (手举着晃)
+  if (totalVar < 0.1) return false;   // 太静 → 照片
+  if (totalVar > 100) return false;   // 太抖 → 手举屏幕
+
+  return true;
+}
+
 function checkReadyFace() {
   const recentYaw = yawHist.data.slice(-8);
   const recentPitch = pitchHist.data.slice(-8);
@@ -1571,12 +1601,15 @@ function checkReadyFace() {
   // 面部遮挡检测
   if (!checkFaceUnoccluded(currentLandmarks)) return false;
 
-  // 🔑 人脸一致性检测:和闪烁阶段的人脸对比,防止中途换人
+  // 🔑 人脸一致性检测
   if (flashFaceSignature && currentLandmarks) {
     const currentSig = calcFaceSignature(currentLandmarks);
     const faceDiff = compareFaceSignatures(flashFaceSignature, currentSig);
     if (faceDiff > FACE_MATCH_THRESHOLD) return false;
   }
+
+  // 📸 微动检测:照片完全不动,真人有微颤
+  if (!checkMicroMovement()) return false;
 
   const recentDiff = earDiffHist.data.slice(-8);
 
