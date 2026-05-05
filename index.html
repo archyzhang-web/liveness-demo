@@ -649,7 +649,7 @@ canvas.overlay {
       </div>
     </div>
 
-    <div class="debug" id="debug" style="display:none"></div>
+    <div class="debug" id="debug" style="display:block"></div>
   </div>
 
   <div class="bottom">
@@ -1119,11 +1119,16 @@ function onResults(results) {
   
   // 调试信息
   if (debug.style.display !== 'none') {
+    const dbgDetail = calcEARDetail(lm);
     debug.innerHTML = `
       YAW: ${pose.yaw.toFixed(1)}<br>
       PITCH: ${pose.pitch.toFixed(1)}<br>
-      EAR: ${earHist.last?.toFixed(3)}<br>
-      MAR: ${marHist.last?.toFixed(3)}
+      L-EAR: ${dbgDetail.left.toFixed(3)}<br>
+      R-EAR: ${dbgDetail.right.toFixed(3)}<br>
+      MIN: ${dbgDetail.min.toFixed(3)}<br>
+      DIFF: ${dbgDetail.diff.toFixed(3)}<br>
+      MAR: ${marHist.last?.toFixed(3)}<br>
+      STATE: ${currentState}
     `;
   }
   
