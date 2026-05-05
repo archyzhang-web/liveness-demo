@@ -1347,7 +1347,7 @@ function startHoldPhase() {
   actionPanel.style.display = 'block';
   actionPanel.style.borderColor = 'var(--warn)';
   actionCurrent.style.color = 'var(--warn)';
-  actionCurrent.innerHTML = '请注视摄像头 · 保持静止';
+  actionCurrent.innerHTML = '<span style="font-size:18px">请注视摄像头 · Hold still</span>';
   actionCurrentEn.textContent = 'Look at camera · Stay still';
   document.getElementById('stepDots').style.display = 'none';
   
@@ -1503,7 +1503,7 @@ function startReadyCheck() {
   actionPanel.style.display = 'block';
   actionPanel.style.borderColor = 'var(--accent)';
   actionCurrent.style.color = 'var(--accent)';
-  actionCurrent.innerHTML = '请看镜头 · Look at camera<br>睁眼 · 闭嘴 · 勿挡脸<br>Eyes open · Mouth closed · No hand';
+  actionCurrent.innerHTML = '<span style="font-size:18px">请看镜头 · Look at camera</span><br><span style="font-size:13px;color:var(--dim)">睁眼 · 闭嘴 · 勿挡脸 / Eyes open · Mouth closed</span>';
   document.getElementById('stepDots').style.display = 'none';
 
   pctDisplay.textContent = '📸';
@@ -1516,11 +1516,11 @@ function updateReadyCheck() {
   if (isReady) {
     readyStableFrames++;
     actionCurrent.style.color = 'var(--success)';
-    actionCurrent.innerHTML = '很好,保持住 · Hold steady...';
+    actionCurrent.innerHTML = '<span style="font-size:18px">很好,保持住 · Hold steady...</span>';
   } else {
     readyStableFrames = Math.max(0, readyStableFrames - 3);  // 一动就扣更多,鼓励稳定
     actionCurrent.style.color = 'var(--accent)';
-    actionCurrent.innerHTML = '请看镜头 · Look at camera<br>睁眼 · 闭嘴 · 勿挡脸<br>Eyes open · Mouth closed · No hand';
+    actionCurrent.innerHTML = '<span style="font-size:18px">请看镜头 · Look at camera</span><br><span style="font-size:13px;color:var(--dim)">睁眼 · 闭嘴 · 勿挡脸 / Eyes open · Mouth closed</span>';
   }
 
   const pct = Math.min(100, Math.round((readyStableFrames / READY_REQUIRED_FRAMES) * 100));
@@ -1621,7 +1621,7 @@ function showFailResult(reason) {
   resultEl.classList.add('show');
   resultIcon.textContent = '✕';
   resultIcon.className = 'result-icon ng';
-  resultTitle.textContent = '验证失败 · Verification Failed';
+  resultTitle.textContent = '验证失败';
   resultSub.textContent = 'VERIFICATION FAILED';
   
   // 隐藏自拍区
@@ -1648,7 +1648,7 @@ function showResult(success, selfieDataUrl) {
   resultEl.classList.add('show');
   resultIcon.textContent = '✓';
   resultIcon.className = 'result-icon ok';
-  resultTitle.textContent = '验证通过 · Verified';
+  resultTitle.textContent = '验证通过';
   resultSub.textContent = 'LIVENESS VERIFIED';
   
   selfieImg.src = selfieDataUrl;
