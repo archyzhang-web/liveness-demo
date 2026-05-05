@@ -1468,8 +1468,8 @@ async function startFlashPhase() {
 
   for (let i = 0; i < FLASH_COLORS.length; i++) {
     const c = FLASH_COLORS[i];
-    await flashOnce(c.color, 420);
-    const frame = grabFrame();
+    // 闪烁并在颜色亮着的时候抓帧(不是等闪完再抓)
+    const frame = await flashAndCapture(c.color, 420);
     capturedFrames.push({ color: c.label, dataUrl: frame });
   }
 
@@ -1588,6 +1588,25 @@ function flashOnce(color, duration) {
       flashLayer.classList.remove('active');
       setTimeout(resolve, 120);
     }, duration);
+  });
+}
+
+// 闪烁 + 在颜色峰值时抓帧(闪烁300ms后抓,此时颜色最亮且摄像头已曝光适应)
+function flashAndCapture(color, duration) {
+  return new Promise(resolve => {
+    flashLayer.style.backgroundColor = color;
+    flashLayer.classList.add('active');
+
+    // 300ms 后抓帧(颜色还亮着,摄像头已经适应了这个颜色)
+    setTimeout(() => {
+      const frame = grabFrame();
+
+      // 再等一会儿再关闭
+      setTimeout(() => {
+        flashLayer.classList.remove('active');
+        setTimeout(() => resolve(frame), 120);
+      }, duration - 300);
+    }, 300);
   });
 }
 
