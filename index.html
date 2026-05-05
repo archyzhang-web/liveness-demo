@@ -1515,22 +1515,20 @@ async function analyzeFlashReflection(frames) {
 
     const totalVariation = rRange + gRange + bRange;
 
-    // 真人: 不同颜色光照下,脸部 RGB 会有明显变化(totalVariation > 30)
-    // 照片/屏幕: 自身发光或固定反射, RGB 变化很小(totalVariation < 15)
-    const REFLECTION_THRESHOLD = 15;
+    // 记录到 console 方便调试
+    console.log('🔦 Flash analysis:', {
+      frames: faceColors,
+      rRange, gRange, bRange,
+      totalVariation,
+    });
+
+    // 真人: 不同颜色光照下,脸部 RGB 会有明显变化
+    // 照片/屏幕: 自身发光或固定反射, RGB 变化很小
+    // 阈值需要实测数据调整,先设为 8 (宽松)
+    const REFLECTION_THRESHOLD = 8;
 
     if (totalVariation < REFLECTION_THRESHOLD) {
-      return { passed: false, reason: '未检测到反光变化 · No reflection change detected' };
-    }
-
-    // 额外检查:红光帧的 R 通道应该是最高的
-    const redFrame = faceColors.find(c => c.label === 'R');
-    const greenFrame = faceColors.find(c => c.label === 'G');
-    if (redFrame && greenFrame) {
-      // 红光下 R 应比绿光下 R 高
-      if (redFrame.r <= greenFrame.r) {
-        return { passed: false, reason: '反光颜色异常 · Abnormal reflection pattern' };
-      }
+      return { passed: false, reason: `未检测到反光变化(${totalVariation.toFixed(0)}) · No reflection change` };
     }
 
     return { passed: true, reason: null, totalVariation };
