@@ -1694,9 +1694,6 @@ function checkReadyFace() {
   // 面部遮挡检测
   if (!checkFaceUnoccluded(currentLandmarks)) return false;
 
-  // 📸 微动检测:照片完全不动,真人有微颤
-  if (!checkMicroMovement()) return false;
-
   const recentDiff = earDiffHist.data.slice(-8);
 
   const yawOk = recentYaw.every(y => Math.abs(y) < 10);
