@@ -1428,21 +1428,20 @@ function startHoldPhase() {
 }
 
 function updateHoldProgress() {
-  // 判断是否正脸且稳定
   const isNeutral = checkNeutralState();
-
-  // 🔑 Hold阶段也检查人脸一致性,防止动作完成后换人
-  if (flashFaceSignature && currentLandmarks) {
-    const currentSig = calcFaceSignature(currentLandmarks);
-    const faceDiff = compareFaceSignatures(flashFaceSignature, currentSig);
-    if (faceDiff > FACE_MATCH_THRESHOLD) {
-      finalizeTest('fail', '人脸不一致 · Face mismatch detected');
-      return;
-    }
-  }
 
   if (isNeutral) {
     holdStableFrames++;
+
+    // 🔑 回正后才核对人脸一致性(避免动作姿态导致误判)
+    if (holdStableFrames > 5 && flashFaceSignature && currentLandmarks) {
+      const currentSig = calcFaceSignature(currentLandmarks);
+      const faceDiff = compareFaceSignatures(flashFaceSignature, currentSig);
+      if (faceDiff > FACE_MATCH_THRESHOLD) {
+        finalizeTest('fail', '人脸不一致 · Face mismatch detected');
+        return;
+      }
+    }
   } else {
     holdStableFrames = Math.max(0, holdStableFrames - 2);
   }
