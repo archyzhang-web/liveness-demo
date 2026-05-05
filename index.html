@@ -178,6 +178,17 @@ canvas.overlay {
   font-size: 26px;
   color: var(--accent);
   letter-spacing: 0.1em;
+  line-height: 1.25;
+}
+
+.action-current-en {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--dim);
+  letter-spacing: 0.15em;
+  margin-top: 4px;
+  text-transform: uppercase;
 }
 
 .action-progress {
@@ -631,6 +642,7 @@ canvas.overlay {
     <div class="action-panel" id="actionPanel" style="display:none">
       <div class="action-label">PLEASE DO</div>
       <div class="action-current" id="actionCurrent">—</div>
+      <div class="action-current-en" id="actionCurrentEn"></div>
       <div class="action-progress" id="stepDots">
         <div class="step-dot"></div>
         <div class="step-dot"></div>
@@ -680,6 +692,7 @@ const startBtn = document.getElementById('startBtn');
 const statusText = document.getElementById('status');
 const actionPanel = document.getElementById('actionPanel');
 const actionCurrent = document.getElementById('actionCurrent');
+const actionCurrentEn = document.getElementById('actionCurrentEn');
 const stepDots = document.getElementById('stepDots').children;
 const flashLayer = document.getElementById('flashLayer');
 const resultEl = document.getElementById('result');
@@ -887,6 +900,7 @@ const STATE = {
   ACTIONS: 'actions',       // 做动作中
   HOLDING: 'holding',       // 🔒 保持静止阶段
   FLASHING: 'flashing',     // 炫彩闪烁
+  READY_CHECK: 'ready_check', // 📸 拍照前正脸确认
   CAPTURING: 'capturing',   // 抓自拍
   DONE: 'done'
 };
@@ -898,12 +912,12 @@ let noFaceFrames = 0;       // 📊 连续无人脸帧计数
 
 // ---------- 动作定义 ----------
 const ACTIONS = {
-  nod:       { name: '点头', emoji: '⬇️', hint: '请点头' },
-  shake:     { name: '摇头', emoji: '↔️', hint: '请摇头' },
-  turnLeft:  { name: '向左转头', emoji: '⬅️', hint: '请向左转头' },
-  turnRight: { name: '向右转头', emoji: '➡️', hint: '请向右转头' },
-  blink:     { name: '眨眼', emoji: '👁', hint: '请眨眼' },
-  openMouth: { name: '张嘴', emoji: '👄', hint: '请张嘴' }
+  nod:       { name: '点头', nameEn: 'Nod',        emoji: '⬇️', hint: '请点头',    hintEn: 'Please nod' },
+  shake:     { name: '摇头', nameEn: 'Shake Head', emoji: '↔️', hint: '请摇头',    hintEn: 'Please shake your head' },
+  turnLeft:  { name: '向左转头', nameEn: 'Turn Left',  emoji: '⬅️', hint: '请向左转头', hintEn: 'Please turn left' },
+  turnRight: { name: '向右转头', nameEn: 'Turn Right', emoji: '➡️', hint: '请向右转头', hintEn: 'Please turn right' },
+  blink:     { name: '眨眼', nameEn: 'Blink',      emoji: '👁', hint: '请眨眼',    hintEn: 'Please blink' },
+  openMouth: { name: '张嘴', nameEn: 'Open Mouth', emoji: '👄', hint: '请张嘴',    hintEn: 'Please open your mouth' }
 };
 
 // ---------- 历史缓冲 ----------
@@ -1107,6 +1121,11 @@ function onResults(results) {
   if (currentState === STATE.HOLDING) {
     updateHoldProgress();
   }
+
+  // 📸 拍照前正脸确认阶段
+  if (currentState === STATE.READY_CHECK) {
+    updateReadyCheck();
+  }
   
   // 显示进度百分比
   if (currentState === STATE.ACTIONS) {
@@ -1193,7 +1212,8 @@ function clearActionTimeout() {
 function showCurrentAction() {
   const action = actionQueue[currentActionIdx];
   actionCurrent.textContent = ACTIONS[action].hint;
-  
+  actionCurrentEn.textContent = ACTIONS[action].hintEn;
+
   // 更新进度点
   Array.from(stepDots).forEach((dot, i) => {
     dot.classList.remove('done', 'current');
@@ -1222,7 +1242,9 @@ function onActionPassed() {
   const panel = actionPanel;
   panel.style.borderColor = 'var(--success)';
   actionCurrent.style.color = 'var(--success)';
-  actionCurrent.textContent = '✓ ' + ACTIONS[actionQueue[currentActionIdx]].name + ' 完成';
+  const doneAction = ACTIONS[actionQueue[currentActionIdx]];
+  actionCurrent.textContent = '✓ ' + doneAction.name + ' 完成';
+  actionCurrentEn.textContent = doneAction.nameEn + ' · Done';
   
   setTimeout(() => {
     panel.style.borderColor = '';
@@ -1241,6 +1263,7 @@ function onActionPassed() {
       waitingForNeutral = true;
       actionCurrent.style.color = 'var(--warn)';
       actionCurrent.textContent = '请回到正脸位置...';
+      actionCurrentEn.textContent = 'Face forward to continue';
       updateStatus('请保持正脸,准备下一个动作');
     }
   }, 900);
@@ -1295,6 +1318,7 @@ function startHoldPhase() {
   actionPanel.style.borderColor = 'var(--warn)';
   actionCurrent.style.color = 'var(--warn)';
   actionCurrent.innerHTML = '请注视摄像头<br>保持静止';
+  actionCurrentEn.textContent = 'Look at camera · Stay still';
   document.getElementById('stepDots').style.display = 'none';
   
   pctDisplay.textContent = 'HD';
@@ -1358,8 +1382,8 @@ async function startFlashPhase() {
     capturedFrames.push({ color: c.label, dataUrl: frame });
   }
   
-  // 进入自拍阶段
-  startCaptureSelfie();
+  // 进入正脸确认阶段(确认后才拍照)
+  startReadyCheck();
 }
 
 function flashOnce(color, duration) {
@@ -1382,12 +1406,84 @@ function grabFrame() {
   return c.toDataURL('image/jpeg', 0.85);
 }
 
+// ---------- 📸 拍照前正脸确认 ----------
+let readyCheckStart = 0;
+let readyStableFrames = 0;
+const READY_REQUIRED_FRAMES = 20;  // 需要连续 20 帧正脸+睁眼+闭嘴
+
+function checkReadyFace() {
+  const recentYaw = yawHist.data.slice(-8);
+  const recentPitch = pitchHist.data.slice(-8);
+  const recentEar = earHist.data.slice(-8);
+  const recentMar = marHist.data.slice(-8);
+
+  if (recentYaw.length < 8) return false;
+
+  const yawOk = recentYaw.every(y => Math.abs(y) < 10);     // 正脸
+  const pitchOk = recentPitch.every(p => Math.abs(p) < 8);   // 不低头不抬头
+  const eyesOpen = recentEar.every(e => e > 0.25);            // 👁 睁眼阈值收紧
+  const mouthClosed = recentMar.every(m => m < 0.15);         // 嘴巴闭上
+
+  return yawOk && pitchOk && eyesOpen && mouthClosed;
+}
+
+function startReadyCheck() {
+  currentState = STATE.READY_CHECK;
+  readyCheckStart = Date.now();
+  readyStableFrames = 0;
+
+  // 清空历史,从头开始检测
+  yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear();
+
+  actionPanel.style.display = 'block';
+  actionPanel.style.borderColor = 'var(--accent)';
+  actionCurrent.style.color = 'var(--accent)';
+  actionCurrent.innerHTML = '请看镜头<br>睁眼 · 闭嘴 · 保持正脸';
+  document.getElementById('stepDots').style.display = 'none';
+
+  pctDisplay.textContent = '📸';
+  updateStatus('准备拍照 · 请保持正脸睁眼');
+}
+
+function updateReadyCheck() {
+  const isReady = checkReadyFace();
+
+  if (isReady) {
+    readyStableFrames++;
+    actionCurrent.style.color = 'var(--success)';
+    actionCurrent.innerHTML = '很好,保持住...';
+  } else {
+    readyStableFrames = Math.max(0, readyStableFrames - 3);  // 一动就扣更多,鼓励稳定
+    actionCurrent.style.color = 'var(--accent)';
+    actionCurrent.innerHTML = '请看镜头<br>睁眼 · 闭嘴 · 保持正脸';
+  }
+
+  const pct = Math.min(100, Math.round((readyStableFrames / READY_REQUIRED_FRAMES) * 100));
+  pctDisplay.textContent = String(pct).padStart(2, '0');
+
+  // 确认通过,开始拍照
+  if (readyStableFrames >= READY_REQUIRED_FRAMES) {
+    actionPanel.style.display = 'none';
+    actionPanel.style.borderColor = '';
+    document.getElementById('stepDots').style.display = 'flex';
+    startCaptureSelfie();
+  }
+
+  // 超时保护: 10秒还没稳定就判定失败,要求重试
+  if (Date.now() - readyCheckStart > 10000) {
+    actionPanel.style.display = 'none';
+    actionPanel.style.borderColor = '';
+    document.getElementById('stepDots').style.display = 'flex';
+    finalizeTest('fail', '拍照准备超时:请保持睁眼正脸');
+  }
+}
+
 // ---------- 自拍取证 ----------
 function startCaptureSelfie() {
   currentState = STATE.CAPTURING;
   updateStatus('正在采集取证照片');
   pctDisplay.textContent = 'OK';
-  
+
   // 稳定 300ms 后抓正脸
   setTimeout(() => {
     const selfie = grabFrame();
