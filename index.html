@@ -1423,18 +1423,50 @@ let readyCheckStart = 0;
 let readyStableFrames = 0;
 const READY_REQUIRED_FRAMES = 20;  // 需要连续 20 帧正脸+睁眼+闭嘴
 
+// 🛡️ 面部遮挡检测:手挡脸时 landmarks 会变形,通过几何一致性判断
+function checkFaceUnoccluded(lm) {
+  if (!lm) return false;
+
+  // 1. 左右眼宽度应大致对称(比值 0.6~1.4 之间)
+  const lEyeW = dist(lm[33], lm[133]);   // 左眼宽
+  const rEyeW = dist(lm[263], lm[362]);  // 右眼宽
+  const eyeRatio = lEyeW / (rEyeW + 0.0001);
+  if (eyeRatio < 0.6 || eyeRatio > 1.7) return false;
+
+  // 2. 两眼之间距离应大于单眼宽度(手挡住会压缩)
+  const eyeDist = dist(lm[133], lm[362]); // 左眼内角到右眼内角
+  if (eyeDist < lEyeW * 0.5 || eyeDist < rEyeW * 0.5) return false;
+
+  // 3. 鼻子到嘴巴距离应合理(脸部下半被遮挡时会异常)
+  const noseToMouth = dist(lm[1], lm[13]);
+  const faceHeight = dist(lm[10], lm[152]); // 额头到下巴
+  const nmRatio = noseToMouth / (faceHeight + 0.0001);
+  if (nmRatio < 0.05 || nmRatio > 0.4) return false;
+
+  // 4. 左右眼高度应该都合理(被手指戳时 EAR 可能看着正常但眼睛位置偏移)
+  const lEyeH = dist(lm[159], lm[145]);  // 左眼高
+  const rEyeH = dist(lm[386], lm[374]);  // 右眼高
+  const eyeHRatio = lEyeH / (rEyeH + 0.0001);
+  if (eyeHRatio < 0.5 || eyeHRatio > 2.0) return false;
+
+  return true;
+}
+
 function checkReadyFace() {
   const recentYaw = yawHist.data.slice(-8);
   const recentPitch = pitchHist.data.slice(-8);
-  const recentMinEar = minEarHist.data.slice(-8);  // 用单眼最小值
+  const recentMinEar = minEarHist.data.slice(-8);
   const recentMar = marHist.data.slice(-8);
 
   if (recentYaw.length < 8) return false;
 
-  const yawOk = recentYaw.every(y => Math.abs(y) < 10);         // 正脸
-  const pitchOk = recentPitch.every(p => Math.abs(p) < 8);       // 不低头不抬头
-  const bothEyesOpen = recentMinEar.every(e => e > 0.22);        // 👁 两只眼都必须睁开
-  const mouthClosed = recentMar.every(m => m < 0.15);             // 嘴巴闭上
+  // 面部遮挡检测(需要当前帧的 landmarks)
+  if (!checkFaceUnoccluded(currentLandmarks)) return false;
+
+  const yawOk = recentYaw.every(y => Math.abs(y) < 10);
+  const pitchOk = recentPitch.every(p => Math.abs(p) < 8);
+  const bothEyesOpen = recentMinEar.every(e => e > 0.22);
+  const mouthClosed = recentMar.every(m => m < 0.15);
 
   return yawOk && pitchOk && bothEyesOpen && mouthClosed;
 }
@@ -1450,11 +1482,11 @@ function startReadyCheck() {
   actionPanel.style.display = 'block';
   actionPanel.style.borderColor = 'var(--accent)';
   actionCurrent.style.color = 'var(--accent)';
-  actionCurrent.innerHTML = '请看镜头<br>睁眼 · 闭嘴 · 保持正脸';
+  actionCurrent.innerHTML = '请看镜头<br>睁眼 · 闭嘴 · 勿挡脸';
   document.getElementById('stepDots').style.display = 'none';
 
   pctDisplay.textContent = '📸';
-  updateStatus('准备拍照 · 请保持正脸睁眼');
+  updateStatus('准备拍照 · 睁眼正脸 · 请勿遮挡面部');
 }
 
 function updateReadyCheck() {
@@ -1467,7 +1499,7 @@ function updateReadyCheck() {
   } else {
     readyStableFrames = Math.max(0, readyStableFrames - 3);  // 一动就扣更多,鼓励稳定
     actionCurrent.style.color = 'var(--accent)';
-    actionCurrent.innerHTML = '请看镜头<br>睁眼 · 闭嘴 · 保持正脸';
+    actionCurrent.innerHTML = '请看镜头<br>睁眼 · 闭嘴 · 勿挡脸';
   }
 
   const pct = Math.min(100, Math.round((readyStableFrames / READY_REQUIRED_FRAMES) * 100));
