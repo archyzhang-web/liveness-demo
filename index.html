@@ -1322,11 +1322,6 @@ function onActionPassed() {
   actionCooldown = true;
   clearActionTimeout();
 
-  // 🔑 第一个动作完成时采集人脸指纹(此刻确定是真人本人)
-  if (!flashFaceSignature && currentLandmarks) {
-    flashFaceSignature = calcFaceSignature(currentLandmarks);
-  }
-
   // 📊 记录当前动作的耗时
   if (currentTest && currentTest.actions[currentActionIdx]) {
     const act = currentTest.actions[currentActionIdx];
@@ -1385,7 +1380,12 @@ function checkNeutralState() {
 // 🔒 回中后,启动下一个动作
 function startNextAction() {
   waitingForNeutral = false;
-  
+
+  // 🔑 回正后采集人脸指纹(正脸状态下几何比例最稳定)
+  if (!flashFaceSignature && currentLandmarks) {
+    flashFaceSignature = calcFaceSignature(currentLandmarks);
+  }
+
   // 再次清空,避免回正过程的数据影响识别
   yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear(); earDiffHist.clear();
   
@@ -1410,6 +1410,11 @@ function startHoldPhase() {
   currentState = STATE.HOLDING;
   holdStartTime = Date.now();
   holdStableFrames = 0;
+
+  // 🔑 如果之前没采到指纹(比如只有1个动作没经过回正),在这里补采
+  if (!flashFaceSignature && currentLandmarks) {
+    flashFaceSignature = calcFaceSignature(currentLandmarks);
+  }
   
   actionPanel.style.display = 'block';
   actionPanel.style.borderColor = 'var(--warn)';
