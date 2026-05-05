@@ -940,30 +940,45 @@ const earDiffHist = new History(45);  // 左右眼EAR差值,检测单眼闭合
 // ---------- 人脸一致性检测 ----------
 // 采集人脸几何指纹:用稳定的骨骼比例(不受表情影响)
 let flashFaceSignature = null;  // 闪烁阶段采集的基准指纹
-const FACE_MATCH_THRESHOLD = 0.25;  // 差异超过此值判定为换人
+const FACE_MATCH_THRESHOLD = 0.08;  // 同一个人约0.04-0.06,换人应远超此值
 
 function calcFaceSignature(lm) {
-  // 选择不受表情影响的骨骼特征点
   const leftEyeOuter = lm[33];
   const rightEyeOuter = lm[263];
+  const leftEyeInner = lm[133];
+  const rightEyeInner = lm[362];
   const noseTip = lm[1];
-  const noseBase = lm[2];       // 鼻梁根部
-  const leftCheek = lm[234];    // 左脸颊
-  const rightCheek = lm[454];   // 右脸颊
+  const noseBase = lm[2];
+  const noseLeft = lm[129];     // 鼻翼左
+  const noseRight = lm[358];    // 鼻翼右
+  const leftCheek = lm[234];
+  const rightCheek = lm[454];
   const forehead = lm[10];
   const chin = lm[152];
+  const leftTemple = lm[127];   // 左太阳穴
+  const rightTemple = lm[356];  // 右太阳穴
+  const leftJaw = lm[172];      // 左下颚角
+  const rightJaw = lm[397];     // 右下颚角
+  const mouthLeft = lm[61];
+  const mouthRight = lm[291];
 
-  // 以脸宽(左眼外角到右眼外角)为基准单位,消除距离影响
   const faceWidth = dist(leftEyeOuter, rightEyeOuter);
   if (faceWidth < 0.01) return null;
 
-  // 5个无量纲比例特征
+  // 12个无量纲比例特征(越多越能区分不同人)
   return [
-    dist(forehead, chin) / faceWidth,                         // 脸长宽比
-    dist(noseTip, noseBase) / faceWidth,                      // 鼻长比
-    dist(leftCheek, rightCheek) / faceWidth,                  // 颧骨宽比
-    dist(leftEyeOuter, noseTip) / dist(rightEyeOuter, noseTip),  // 鼻子左右对称比
-    dist(forehead, noseTip) / dist(noseTip, chin),            // 上下脸比例
+    dist(forehead, chin) / faceWidth,                              // 1. 脸长宽比
+    dist(noseTip, noseBase) / faceWidth,                           // 2. 鼻长比
+    dist(leftCheek, rightCheek) / faceWidth,                       // 3. 颧骨宽比
+    dist(leftEyeOuter, noseTip) / dist(rightEyeOuter, noseTip),   // 4. 鼻子左右对称
+    dist(forehead, noseTip) / dist(noseTip, chin),                 // 5. 上下脸比例
+    dist(noseLeft, noseRight) / faceWidth,                         // 6. 鼻翼宽度比
+    dist(leftEyeInner, rightEyeInner) / faceWidth,                // 7. 内眼距比
+    dist(leftTemple, rightTemple) / faceWidth,                     // 8. 太阳穴宽比
+    dist(leftJaw, rightJaw) / faceWidth,                           // 9. 下颚宽比
+    dist(mouthLeft, mouthRight) / faceWidth,                       // 10. 嘴宽比
+    dist(noseTip, lm[13]) / faceWidth,                             // 11. 鼻尖到上唇
+    dist(leftJaw, chin) / dist(rightJaw, chin),                    // 12. 下颚对称比
   ];
 }
 
