@@ -1468,19 +1468,13 @@ async function startFlashPhase() {
 
   for (let i = 0; i < FLASH_COLORS.length; i++) {
     const c = FLASH_COLORS[i];
-    // 闪烁并在颜色亮着的时候抓帧(不是等闪完再抓)
-    const frame = await flashAndCapture(c.color, 420);
+    await flashOnce(c.color, 420);
+    const frame = grabFrame();
     capturedFrames.push({ color: c.label, dataUrl: frame });
   }
 
-  // 🔦 炫彩反光分析:检查脸部是否反射了闪烁颜色
-  const flashResult = await analyzeFlashReflection(capturedFrames);
-  if (!flashResult.passed) {
-    finalizeTest('fail', flashResult.reason);
-    return;
-  }
-
-  // 进入正脸确认阶段(确认后才拍照)
+  // 闪烁帧已采集,反光分析由后端执行
+  // 进入正脸确认阶段
   startReadyCheck();
 }
 
@@ -1524,8 +1518,8 @@ async function analyzeFlashReflection(frames) {
 
     // 真人: 不同颜色光照下,脸部 RGB 会有明显变化
     // 照片/屏幕: 自身发光或固定反射, RGB 变化很小
-    // 阈值需要实测数据调整,先设为 8 (宽松)
-    const REFLECTION_THRESHOLD = 8;
+    // 真人约5-7,照片/屏幕约0-3,阈值设为4
+    const REFLECTION_THRESHOLD = 4;
 
     if (totalVariation < REFLECTION_THRESHOLD) {
       return { passed: false, reason: `未检测到反光变化(${totalVariation.toFixed(0)}) · No reflection change` };
