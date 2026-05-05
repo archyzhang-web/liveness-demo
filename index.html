@@ -1505,12 +1505,15 @@ function updateReadyCheck() {
   const pct = Math.min(100, Math.round((readyStableFrames / READY_REQUIRED_FRAMES) * 100));
   pctDisplay.textContent = String(pct).padStart(2, '0');
 
-  // 确认通过,开始拍照
+  // 确认通过,立即拍照(零延迟,不给伸手的机会)
   if (readyStableFrames >= READY_REQUIRED_FRAMES) {
+    const selfie = grabFrame();  // 当前帧就是合格帧,直接拍!
     actionPanel.style.display = 'none';
     actionPanel.style.borderColor = '';
     document.getElementById('stepDots').style.display = 'flex';
-    startCaptureSelfie();
+    currentState = STATE.CAPTURING;
+    pctDisplay.textContent = 'OK';
+    showResult(true, selfie);
   }
 
   // 超时保护: 10秒还没稳定就判定失败,要求重试
