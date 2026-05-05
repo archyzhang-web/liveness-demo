@@ -1485,8 +1485,8 @@ function checkReadyFace() {
 
   const yawOk = recentYaw.every(y => Math.abs(y) < 10);
   const pitchOk = recentPitch.every(p => Math.abs(p) < 8);
-  const bothEyesOpen = recentMinEar.every(e => e > 0.27);        // 收紧: 0.22→0.27 (手遮时MediaPipe报0.256)
-  const eyesSymmetric = recentDiff.length >= 8 && recentDiff.every(d => d < 0.06);  // 收紧: 0.08→0.06 (手遮时差异0.079)
+  const bothEyesOpen = recentMinEar.every(e => e > 0.23);        // 放宽回 0.23 (兼容手机)
+  const eyesSymmetric = recentDiff.length >= 8 && recentDiff.every(d => d < 0.06);  // 保持严格: 左右差异<0.06
   const mouthClosed = recentMar.every(m => m < 0.15);
 
   return yawOk && pitchOk && bothEyesOpen && eyesSymmetric && mouthClosed;
