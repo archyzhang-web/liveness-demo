@@ -1250,6 +1250,9 @@ function pickRandomActions() {
   return shuffled.slice(0, 2);
 }
 
+let globalTimeoutTimer = null;
+const GLOBAL_TIMEOUT_MS = 35000;  // 35秒全局超时
+
 function startVerification() {
   actionQueue = pickRandomActions();
   currentActionIdx = 0;
@@ -1257,7 +1260,15 @@ function startVerification() {
   actionPanel.style.display = 'block';
   startBtn.style.display = 'none';
   captureRetries = 0;
-  
+
+  // 全局超时: 35秒内必须完成整个流程
+  if (globalTimeoutTimer) clearTimeout(globalTimeoutTimer);
+  globalTimeoutTimer = setTimeout(() => {
+    if (currentState !== STATE.DONE) {
+      finalizeTest('fail', '验证超时 · Verification timeout (35s)');
+    }
+  }, GLOBAL_TIMEOUT_MS);
+
   // 清空历史
   yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear(); earDiffHist.clear();
   
@@ -1809,6 +1820,7 @@ function attemptCapture() {
 // ---------- 结果展示 ----------
 function finalizeTest(result, failReason) {
   clearActionTimeout();
+  if (globalTimeoutTimer) { clearTimeout(globalTimeoutTimer); globalTimeoutTimer = null; }
   if (currentState === STATE.DONE) return; // 防重入
   currentState = STATE.DONE;
   
