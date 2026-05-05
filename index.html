@@ -649,7 +649,7 @@ canvas.overlay {
       </div>
     </div>
 
-    <div class="debug" id="debug" style="display:none"></div>
+    <div class="debug" id="debug" style="display:block"></div>
   </div>
 
   <div class="bottom">
@@ -1159,14 +1159,20 @@ function onResults(results) {
   // 调试信息
   if (debug.style.display !== 'none') {
     const dbgDetail = calcEARDetail(lm);
+    let faceMatchStr = '—';
+    if (flashFaceSignature) {
+      const curSig = calcFaceSignature(lm);
+      const fm = compareFaceSignatures(flashFaceSignature, curSig);
+      faceMatchStr = fm.toFixed(3) + (fm > FACE_MATCH_THRESHOLD ? ' ❌' : ' ✓');
+    }
     debug.innerHTML = `
       YAW: ${pose.yaw.toFixed(1)}<br>
       PITCH: ${pose.pitch.toFixed(1)}<br>
       L-EAR: ${dbgDetail.left.toFixed(3)}<br>
       R-EAR: ${dbgDetail.right.toFixed(3)}<br>
-      MIN: ${dbgDetail.min.toFixed(3)}<br>
       DIFF: ${dbgDetail.diff.toFixed(3)}<br>
       MAR: ${marHist.last?.toFixed(3)}<br>
+      <b>FACE: ${faceMatchStr}</b><br>
       STATE: ${currentState}
     `;
   }
