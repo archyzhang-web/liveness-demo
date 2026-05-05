@@ -934,7 +934,8 @@ const yawHist = new History(45);
 const pitchHist = new History(45);
 const earHist = new History(45);
 const marHist = new History(45);
-const minEarHist = new History(45);  // 单眼最小EAR,用于拍照检测
+const minEarHist = new History(45);   // 单眼最小EAR
+const earDiffHist = new History(45);  // 左右眼EAR差值,检测单眼闭合
 
 // ---------- 几何计算 ----------
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z||0) - (b.z||0));
@@ -972,15 +973,25 @@ function calcEAR(lm) {
   return (lEAR + rEAR) / 2;
 }
 
-// 单眼最小 EAR(用于拍照前检测,两只眼都必须睁开)
-function calcMinEAR(lm) {
+// 双眼 EAR 详细值(用于拍照前检测)
+function calcEARDetail(lm) {
   const lUp = lm[159], lDown = lm[145], lOut = lm[33], lIn = lm[133];
   const lEAR = dist(lUp, lDown) / (dist(lOut, lIn) + 0.0001);
 
   const rUp = lm[386], rDown = lm[374], rOut = lm[263], rIn = lm[362];
   const rEAR = dist(rUp, rDown) / (dist(rOut, rIn) + 0.0001);
 
-  return Math.min(lEAR, rEAR);  // 取较小的那只眼
+  return {
+    left: lEAR,
+    right: rEAR,
+    min: Math.min(lEAR, rEAR),
+    diff: Math.abs(lEAR - rEAR),  // 左右差异,大说明一只闭了
+  };
+}
+
+// 向后兼容
+function calcMinEAR(lm) {
+  return calcEARDetail(lm).min;
 }
 
 // MAR: 嘴巴纵横比
@@ -1099,7 +1110,9 @@ function onResults(results) {
   pitchHist.push(pose.pitch);
   earHist.push(calcEAR(lm));
   marHist.push(calcMAR(lm));
-  minEarHist.push(calcMinEAR(lm));
+  const earDetail = calcEARDetail(lm);
+  minEarHist.push(earDetail.min);
+  earDiffHist.push(earDetail.diff);
   
   // 画关键点(轻量,不画全部)
   drawLandmarks(lm);
@@ -1180,7 +1193,7 @@ function startVerification() {
   startBtn.style.display = 'none';
   
   // 清空历史
-  yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear();
+  yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear(); earDiffHist.clear();
   
   // 📊 初始化本次测试记录
   currentTest = {
@@ -1265,7 +1278,7 @@ function onActionPassed() {
     currentActionIdx++;
     
     // 🔒 强制清空所有历史缓冲
-    yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear();
+    yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear(); earDiffHist.clear();
     
     if (currentActionIdx >= actionQueue.length) {
       // 所有动作完成,进入"静止提示"阶段
@@ -1302,7 +1315,7 @@ function startNextAction() {
   waitingForNeutral = false;
   
   // 再次清空,避免回正过程的数据影响识别
-  yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear();
+  yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear(); earDiffHist.clear();
   
   // 📊 记下一个动作的提示开始时间
   if (currentTest && currentTest.actions[currentActionIdx]) {
@@ -1463,12 +1476,15 @@ function checkReadyFace() {
   // 面部遮挡检测(需要当前帧的 landmarks)
   if (!checkFaceUnoccluded(currentLandmarks)) return false;
 
+  const recentDiff = earDiffHist.data.slice(-8);
+
   const yawOk = recentYaw.every(y => Math.abs(y) < 10);
   const pitchOk = recentPitch.every(p => Math.abs(p) < 8);
   const bothEyesOpen = recentMinEar.every(e => e > 0.22);
+  const eyesSymmetric = recentDiff.length >= 8 && recentDiff.every(d => d < 0.08);  // 左右差异<0.08
   const mouthClosed = recentMar.every(m => m < 0.15);
 
-  return yawOk && pitchOk && bothEyesOpen && mouthClosed;
+  return yawOk && pitchOk && bothEyesOpen && eyesSymmetric && mouthClosed;
 }
 
 function startReadyCheck() {
@@ -1477,7 +1493,7 @@ function startReadyCheck() {
   readyStableFrames = 0;
 
   // 清空历史,从头开始检测
-  yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear();
+  yawHist.clear(); pitchHist.clear(); earHist.clear(); marHist.clear(); minEarHist.clear(); earDiffHist.clear();
 
   actionPanel.style.display = 'block';
   actionPanel.style.borderColor = 'var(--accent)';
